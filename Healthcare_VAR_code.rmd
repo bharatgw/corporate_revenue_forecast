@@ -1,0 +1,160 @@
+```{r}
+library(dplyr)
+library(ggplot2)
+library(forecast)
+```
+
+```{r}
+pop = read.csv("./data/POPTHM (1).csv") %>%
+  select(POPTHM) %>%
+  ts(start = c(1959, 1), end = c(2023, 1), frequency = 12) %>%
+  aggregate(nfrequency = 4)
+
+fedfunds = read.csv("./data/FEDFUNDS.csv") %>%
+  select(FEDFUNDS) %>%
+  ts(start = c(1980, 1), end = c(2023, 03), frequency = 4)
+
+gdpchange = read.csv("./data/usgdpchange.csv") %>%
+  rename(USGDPCHANGE = A191RP1Q027SBEA) %>%
+  select(USGDPCHANGE) %>%
+  ts(start = c(1980, 4), end = c(2022, 4), frequency = 4)
+
+vix = read.csv("./data/vix.csv") %>%
+  select(VIXCLS) %>%
+  rename(VIX = VIXCLS) %>%
+  ts(start = c(1990, 1), end = c(2022, 4), frequency = 4)
+
+df = read.csv("./data/IndustryRevenues.csv") %>%
+  select(-datacqtr) %>%
+  ts(start = c(1980, 1), end = c(2022, 4), frequency = 4)
+
+dfAggNoVix = ts.intersect(df, gdpchange, fedfunds, popgrowth = diff(log(pop))*100)
+dfAggNoVix = dfAggNoVix[,c("df.Information.Technology", "df.Health.Care", "df.Consumer.Discretionary", "df.Financials","df.Industrials","df.Utilities", "fedfunds", "popgrowth", "gdpchange")]
+
+dfAggVix = ts.intersect(df, gdpchange, fedfunds, popgrowth = diff(log(pop))*100, vix)
+
+autoplot(df) + theme_classic()
+autoplot(dfAggVix[,c("gdpchange", "vix")]) + theme_classic()
+autoplot(dfAggNoVix[, c("fedfunds", "popgrowth")]) + theme_classic()
+```
+
+```{r}
+traindf = window(dfAggNoVix, c(1980, 4), c(2013, 4))
+testdf = window(dfAggNoVix, c(2014, 1))
+```
+
+```{r}
+# RWF w/ drift but with Manual
+stlmHealth = stlm(traindf[, "df.Health.Care"], s.window = "periodic", lambda = "auto", robust = T)
+seasAdjHealth = seasadj(stlmHealth$stl)
+seasonalHealth = seasonal(stlmHealth$stl)
+
+seasAdjHealthF = forecast(Arima(seasAdjHealth, c(0,1,0), include.drift = T), h = nrow(testdf), level = 0.95)
+seasonalHealthF = snaive(seasonalHealth, h = nrow(testdf), level = 0.95)
+MeanF = InvBoxCox(seasAdjHealthF$mean + seasonalHealthF$mean, lambda = stlmHealth$lambda)
+LowerF = InvBoxCox(seasAdjHealthF$lower + seasonalHealthF$lower, lambda = stlmHealth$lambda)
+UpperF = InvBoxCox(seasAdjHealthF$upper + seasonalHealthF$upper, lambda = stlmHealth$lambda)
+
+p2 = MeanF %>% 
+  autoplot() + autolayer(LowerF, color= "blue") + autolayer(UpperF, color = "blue") + autolayer(dfAggNoVix[, "df.Health.Care"]) + theme_classic() + theme(legend.position = "none")
+
+acf(diff(seasAdjHealth))
+pacf(diff(seasAdjHealth))
+tsdisplay(diff(seasAdjHealth))
+
+# Suggests ARIMA(1,1,1)
+```
+
+
+```{r}
+# Trying out different models. All models are on seasonally adjusted component with the final predictions having seasonality added back in. First model with RW w/drift is base/test.
+
+# RW w/ drift
+mdl1f = stlf(traindf[, "df.Health.Care"], s.window = "periodic", lambda = "auto", robust = T, method = "rwdrift", h = nrow(testdf))
+# mdl1f %>% autoplot() + autolayer(testdf[, "df.Health.Care"], color = "black") + theme_classic() + theme(legend.position = "none")
+Box.test(mdl1f$residuals, lag = 12, type = "Ljung-Box")
+accuracy(mdl1f, testdf[, "df.Health.Care"])
+
+# ARIMA(1,1,1)
+mdl2 = stlm(traindf[, "df.Health.Care"], s.window = "periodic", lambda = "auto", robust = T, modelfunction = Arima, order = c(1, 1, 1), include.drift = T)
+mdl2f = forecast(mdl2,  h = nrow(testdf)) 
+# mdl2f%>% autoplot() + autolayer(testdf[, "df.Health.Care"], color = "black") + theme_classic() + theme(legend.position = "none")
+Box.test(mdl2$residuals, lag = 12, type = "Ljung-Box")
+accuracy(mdl2f, testdf[, "df.Health.Care"])
+
+# ARIMA(1,1,1) with xreg
+ArimaWxReg = function(x, ...){Arima(x, xreg = traindf[, c("gdpchange", "popgrowth")], ...)} 
+# Function definition since xreg is already an argument in stlm
+
+mdl3 = stlm(traindf[, "df.Health.Care"], s.window = "periodic", lambda = "auto", robust = T, modelfunction = ArimaWxReg, order = c(1, 1, 1), include.drift = T)
+mdl3f = forecast(mdl3,  h = nrow(testdf), newxreg = testdf[, c("gdpchange", "popgrowth")])
+# mdl3f %>% autoplot() + autolayer(testdf[, "df.Health.Care"], color = "black") + theme_classic() + theme(legend.position = "none")
+Box.test(mdl3$residuals, lag = 12, type = "Ljung-Box")
+accuracy(mdl3f, testdf[, "df.Health.Care"])
+
+# Trend Estimate w/ ARMA(1,1) instead of Random Walk/Differencing
+ArimaWTrend = function(x, ...){Arima(x, xreg = 1:nrow(traindf), ...)} 
+# Function definition since xreg is already an argument in stlm
+
+mdl4 = stlm(traindf[, "df.Health.Care"], s.window = "periodic", lambda = "auto", robust = T, modelfunction = ArimaWTrend, order = c(1, 0, 1), include.constant = T)
+mdl4f = forecast(mdl4,  h = nrow(testdf), newxreg = (nrow(traindf)+1):nrow(dfAggNoVix))
+# mdl4f %>% autoplot() + autolayer(testdf[, "df.Health.Care"], color = "black") + theme_classic() + theme(legend.position = "none")
+Box.test(mdl4$residuals, lag = 12, type = "Ljung-Box")
+accuracy(mdl4f, testdf[, "df.Health.Care"])
+
+#Damn, the deterministic trend model is actually the best univariate one. Who'd have thought.
+```
+
+```{r}
+tseries::kpss.test(mdl4f$residuals, null = "Level")
+checkresiduals(mdl4f$residuals)
+```
+
+# VAR Model
+
+```{r, warning = F}
+adjusteddf = BoxCox(traindf, lambda = BoxCox.lambda(traindf))
+causalitymatrix = matrix(rep(NA, 9**2), nrow = 9, dimnames = list(colnames(traindf), colnames(traindf)))
+cointegrationmatrix = matrix(rep(NA, 9**2), nrow = 9, dimnames = list(colnames(traindf), colnames(traindf)))
+
+for (i in 1:ncol(traindf)){
+  print(colnames(traindf)[i])
+  print(ndiffs(diff(traindf[, i])))
+  # plot(diff(adjusteddf[,i]))
+}
+
+for (i in 1:ncol(traindf)){
+  for (j in 1:ncol(traindf)){
+    if (i != j){
+      pval = lmtest::grangertest(diff(adjusteddf[,i]), diff(adjusteddf[,j]))$`Pr(>F)`[2]
+      if (pval < 0.1){
+        causalitymatrix[i,j] = 1
+      }
+    }
+  }
+}
+
+for (i in 1:ncol(traindf)){
+  for (j in 1:ncol(traindf)){
+    if (i != j){
+      pval = Box.test(lm(adjusteddf[,i] ~ adjusteddf[,j])$resid, lag = 12)$p.value
+      if (pval > 0.1){
+        cointegrationmatrix[i,j] = 1
+      }
+    }
+  }
+}
+
+cointegrationmatrix
+causalitymatrix
+```
+
+
+
+```{r}
+varmdl = vars::VAR(traindf, p = 2)
+forecast(varmdl, h = nrow(testdf))$forecast$df.Health.Care %>% autoplot() + autolayer(testdf[,"df.Health.Care"])
+```
+
+
+
