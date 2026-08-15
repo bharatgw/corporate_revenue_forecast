@@ -8,6 +8,12 @@ This group project aggregated Russell 1000 company revenue by GICS industry and 
 
 The project was completed by a team of six. The repository contains the group report together with the repository owner's Python data-preparation work and R analysis of the Healthcare sector and cross-industry VAR model. Consult the report for the full contributor list and project context.
 
+## Example forecast
+
+![Industry revenue forecast compared with the held-out test series](./assets/project-preview.png)
+
+An example out-of-sample forecast comparison from the submitted report.
+
 ## Repository contents
 
 | Path | Purpose |
