@@ -12,9 +12,10 @@ The project was completed by a team of six. The repository contains the group re
 
 | Path | Purpose |
 | --- | --- |
-| `Final Report.pdf` | Group report, methodology, results, and contributor context. |
-| `Russell1000_Data.ipynb` | Russell 1000 ticker and revenue-data preparation. |
-| `Healthcare_VAR_code.rmd` | Healthcare forecasts and cross-industry VAR analysis. |
+| [`Final Report.pdf`](./Final%20Report.pdf) | Group report, methodology, results, and contributor context. |
+| [`Russell1000_Data.ipynb`](./Russell1000_Data.ipynb) | Russell 1000 ticker and revenue-data preparation. |
+| [`Healthcare_VAR_code.rmd`](./Healthcare_VAR_code.rmd) | Healthcare forecasts and cross-industry VAR analysis. |
+| [`DATA_SOURCES.md`](./DATA_SOURCES.md) | Missing-input inventory, restrictions, and reconstruction guidance. |
 
 ## Reproducibility status
 
